@@ -1,0 +1,93 @@
+- name: create group
+  group:
+    name: "{{kafka_group}}"
+    state: present
+
+- name: create user
+  user:
+    name: "{{kafka_user}}"
+    group: "{{kafka_group}}"
+    state: present
+    shell: /bin/bash
+
+- name: "Check if tar has been downloaded"
+  command: test -f /tmp/{{ kafka_name }}.tgz
+  register: kafka_tar_downloaded
+  failed_when: kafka_tar_downloaded.rc not in [0, 1]
+  changed_when: False
+
+- name: Ensure Kafka tar is downloaded
+  get_url:
+    url: "{{ kafka_url }}"
+    dest: "{{ kafka_bin_tmp }}"
+    timeout: 20
+  when: kafka_tar_downloaded.rc == 1
+
+- name: Ensures install directory {{ kafka_install_dir }} exists
+  file:
+    path: "{{ kafka_install_dir }}"
+    state: directory
+    owner: "{{kafka_user}}"
+    group: "{{kafka_group}}"
+
+- name: Ensures kafka data directory exists
+  file:
+    path: "{{ kafka_data_dir }}"
+    state: directory
+    owner: "{{kafka_user}}"
+    group: "{{kafka_group}}"
+
+- name: Ensures zookeeper data directory exists
+  file:
+    path: "{{ kafka_zookeeper_data_dir }}"
+    state: directory
+    owner: "{{kafka_user}}"
+    group: "{{kafka_group}}"
+
+- name: Ensure tar is extracted
+  unarchive:
+    remote_src: yes
+    src: "{{kafka_bin_tmp}}"
+    dest: "{{kafka_install_dir}}"
+    creates: "{{ kafka_install_dir }}/{{ kafka_name }}"
+    owner: "{{kafka_user}}"
+    group: "{{kafka_group}}"
+
+- name: "Link {{kafka_install_dir}}/active to the right version"
+  file: path={{kafka_install_dir}}/active state=link src={{kafka_install_dir}}/{{kafka_name}}
+  sudo: yes
+
+- name: "Render and write out kafka user env file"
+  template: src=etc/defaults/kafka.j2 dest="/etc/default/kafka" mode=0644 owner=root group=root
+  sudo: yes
+  notify:
+    - restart kafka
+
+- name: "Create zookeeper systemd config"
+  template: dest=/etc/systemd/system/zookeeper.service src=etc/systemd/system/zookeeper.service.j2 mode=0644 owner=root group=root
+  sudo: yes
+  when: ansible_service_mgr == 'systemd'
+  notify:
+    - reload systemctl daemon
+    - restart zookeeper
+
+- name: "Create kafka systemd config"
+  template: dest=/etc/systemd/system/kafka.service src=etc/systemd/system/kafka.service.j2 mode=0644 owner=root group=root
+  sudo: yes
+  when: ansible_service_mgr == 'systemd'
+  notify:
+    - reload systemctl daemon
+    - restart kafka
+
+- name: "Create kafka directories"
+  file: path={{ item }} state=directory mode=0755 owner={{ kafka_user }} group={{ kafka_group }}
+  sudo: yes
+  with_items:
+    - "{{ kafka_data_dir }}"
+    - "{{ kafka_log_dir }}"
+    - "{{ kafka_conf_dir }}"
+
+- name: "Remove lost+found in the datadir"
+  file: path="{{ kafka_data_dir }}/lost+found" state=absent
+  sudo: yes
+

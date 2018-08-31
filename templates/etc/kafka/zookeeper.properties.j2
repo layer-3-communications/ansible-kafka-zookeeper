@@ -1,0 +1,13 @@
+# the directory where the snapshot is stored.
+dataDir={{kafka_zookeeper_data_dir}}
+# the port at which the clients will connect
+clientPort={{kafka_zookeeper_port}}
+# disable the per-ip limit on the number of connections since this is a non-production config
+maxClientCnxns=0
+
+initLimit={{kafka_zookeeper_init_limit}}
+syncLimit={{kafka_zookeeper_sync_limit}}
+
+{% for host in ansible_play_hosts %}
+server.{{hostvars[host].kafka_zookeeper_myid}}={{host}}:{{kafka_zookeeper_peer_port}}:{{kafka_zookeeper_leader_port}}
+{% endfor %}

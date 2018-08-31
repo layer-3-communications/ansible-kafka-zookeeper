@@ -1,0 +1,68 @@
+---
+- name: "Generate kafka_server fact"
+  set_fact: kafka_server="{{ kafka_server_defaults | combine(kafka_server) }}"
+
+- name: "Generate kafka_healtcheck_address fact"
+  set_fact: kafka_healthcheck_address="{{ ((kafka_server.host_name | default('127.0.0.1')) == '') | ternary('127.0.0.1', kafka_server.host_name) }}"
+  when: kafka_healthcheck_address == ""
+
+- name: "Generate kafka_producer fact"
+  set_fact: kafka_producer="{{ kafka_producer_defaults | combine(kafka_producer) }}"
+
+- name: "Generate the zookeeper hosts connection string"
+  set_fact: kafka_zookeeper_connection_string="{{ kafka_zookeeper_hosts | join(':' ~ kafka_zookeeper_port ~ ',') }}:{{ kafka_zookeeper_port }}"
+
+- name: "Generate the kafka hosts connection string"
+  set_fact: kafka_connection_string="{{ kafka_hosts | join(':' ~ kafka_server.port ~ ',') }}:{{ kafka_server.port }}"
+
+- name: "Render and write out zookeeper configuration files"
+  template: src=etc/kafka/{{ item }}.j2 dest="{{ kafka_conf_dir }}/{{ item }}" mode=0640 owner={{ kafka_user }} group={{ kafka_group }}
+  sudo: yes
+  with_items:
+    - zookeeper.properties
+  notify:
+    - restart zookeeper
+
+- name: "Write zookeeper myid file"
+  template: src=var/lib/zookeeper/myid.j2 dest="{{ kafka_zookeeper_data_dir }}/myid" mode=0640 owner={{ kafka_user }} group={{ kafka_group }}
+  sudo: yes
+  notify:
+    - restart zookeeper
+
+- name: "Render and write out kafka configuration files"
+  template: src=etc/kafka/{{ item }}.j2 dest="{{ kafka_conf_dir }}/{{ item }}" mode=0640 owner={{ kafka_user }} group={{ kafka_group }}
+  sudo: yes
+  with_items:
+    - server.properties
+    - producer.properties
+    - consumer.properties
+    - log4j.properties
+  notify:
+    - restart kafka
+
+- name: "Enable kafka system service"
+  service: name=kafka state=started enabled=yes
+  sudo: yes
+  tags:
+    - kafka-install
+
+- name: "Enable zookeeper system service"
+  service: name=zookeeper state=started enabled=yes
+  sudo: yes
+  tags:
+    - kafka-install
+
+- meta: flush_handlers
+
+- name: "Wait for kafka to come up and open its server port"
+  wait_for: port={{ kafka_server.port }} host={{ kafka_healthcheck_address }} connect_timeout={{ kafka_port_test_timeout_seconds }} timeout={{ kafka_port_test_timeout_seconds }}
+  ignore_errors: yes
+  register: healthcheck
+  tags:
+    - kafka-healthcheck
+
+- name: "Check kafka port test result"
+  fail: msg="Kafka port not open on host={{ kafka_healthcheck_address }}, port={{ kafka_server.port }}"
+  when: healthcheck.elapsed is defined and (healthcheck.elapsed >= kafka_port_test_timeout_seconds and kafka_port_test_timeout_seconds > 0)
+  tags:
+    - kafka-healthcheck
