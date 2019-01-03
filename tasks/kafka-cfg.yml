@@ -40,6 +40,12 @@
   notify:
     - restart kafka
 
+- name: "Render and write out kafka user env file"
+  template: src=etc/defaults/kafka.j2 dest="/etc/default/kafka" mode=0644 owner=root group=root
+  sudo: yes
+  notify:
+    - restart kafka
+
 - name: "Enable kafka system service"
   service: name=kafka state=started enabled=yes
   sudo: yes
