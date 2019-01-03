@@ -30,7 +30,7 @@ Example:
 
 ```yml
 - hosts: kafka
-  become: yes
+  sudo: yes
   vars:
     kafka_server:
       listeners: "PLAINTEXT://0.0.0.0:9092"
@@ -46,6 +46,13 @@ Example:
     - role: ansible-kafka-zookeeper
 
 ```
+
+Run the playbook like so:
+
+```sh
+ansible-playbook playbook.yml -i hosts --ask-sudo-pass
+```
+where `hosts` contains your role variables.
 
 ## Role variables
 
